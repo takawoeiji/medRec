@@ -562,8 +562,7 @@ input[type='checkbox'] {
   table-layout: fixed;
 }
 .sheet-table.fixed th {
-  width: auto;
-  text-align: center;
+  width: 12%;
 }
 .sheet-table.side {
   margin-left: -1px;
@@ -733,5 +732,312 @@ input[type='checkbox'] {
   .pending {
     background: none;
     color: #000;
+  }
+}
+
+/* ==== 第1段階で追加 ==== */
+.mt {
+  margin-top: 12px;
+}
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+.spacer {
+  flex: 1;
+}
+.pre {
+  white-space: pre-wrap;
+}
+.lead {
+  margin: 0 0 16px;
+}
+.btn.block {
+  width: 100%;
+  margin-top: 12px;
+}
+.ver {
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--muted);
+  margin-left: 6px;
+}
+
+/* ログイン */
+.login {
+  max-width: 400px;
+  margin: 8vh auto 0;
+  text-align: center;
+}
+.login h1 {
+  margin-bottom: 4px;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-top: 20px;
+  text-align: left;
+}
+.card .field + .field {
+  margin-top: 12px;
+}
+.otp {
+  font-size: 1.6rem;
+  letter-spacing: 0.4em;
+  text-align: center;
+}
+.login-foot {
+  margin-top: 24px;
+  font-size: 0.86rem;
+}
+.appbar nav {
+  align-items: center;
+}
+
+/* 同意 */
+.notice-body:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.consent-to {
+  margin: 0 0 12px;
+  font-weight: 600;
+}
+
+/* プロフィール */
+.profile {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.avatar.large {
+  width: 72px;
+  height: 72px;
+  font-size: 1.6rem;
+}
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.tags .tag-row {
+  justify-content: flex-end;
+  margin-top: 0;
+}
+.tag.vip {
+  background: #f3e8c8;
+  color: #6b4e00;
+}
+.tag.fast {
+  background: #e6e3f5;
+  color: #44388a;
+}
+.tag.alt {
+  background: #e4ecf7;
+  color: #24508f;
+}
+.filters {
+  flex-wrap: wrap;
+  align-items: center;
+}
+.filters input[type='search'] {
+  flex: 1 1 220px;
+}
+.filters .chip {
+  min-height: 44px;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 16px;
+  margin: 0;
+}
+.facts dt {
+  color: var(--muted);
+  font-size: 0.86rem;
+  padding-top: 2px;
+}
+.facts dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+/* 療法記録 */
+.session-list,
+.comments,
+.history,
+.login-list,
+.consent-records {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.session {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-top: 12px;
+}
+.session-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.staff-note {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  background: var(--warn-soft);
+  border-radius: 8px;
+  white-space: pre-wrap;
+}
+.staff-note .label {
+  display: block;
+  color: var(--warn);
+  font-size: 0.75rem;
+}
+.comment {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: var(--bg);
+  border-radius: 8px;
+}
+.comment.staff {
+  background: var(--accent-soft);
+}
+.comment p {
+  margin: 2px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.comment-meta {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.comment-box {
+  margin-top: 10px;
+}
+.comment-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.session-editor {
+  display: grid;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.session-editor-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+.callout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  margin: 12px 0;
+  background: var(--warn-soft);
+  border-radius: var(--radius);
+}
+.callout p {
+  margin: 0;
+}
+.callout.column {
+  display: block;
+  background: var(--accent-soft);
+}
+.callout.column .session-editor {
+  border: none;
+  padding: 8px 0 0;
+}
+
+.consent-records li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.consent-records img {
+  width: 160px;
+  height: 48px;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+.login-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.login-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+}
+.login-add .field {
+  flex: 1 1 150px;
+}
+.history li {
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+
+/* 登録表 */
+.mark {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 6px;
+  border: 1.5px solid #000;
+  font-weight: 700;
+  font-size: 0.85em;
+}
+.sheet-date {
+  font-size: 0.85em;
+  color: #444;
+  margin-right: 4px;
+}
+.consent-docs {
+  margin: 12px 0 0 1.5em;
+  padding: 0;
+}
+.sign-line img {
+  display: inline-block;
+  vertical-align: bottom;
+  margin-right: 8px;
+}
+
+@media (max-width: 640px) {
+  .facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+  .facts dd {
+    margin-bottom: 8px;
+  }
+  .profile .actions {
+    width: 100%;
   }
 }

@@ -1,39 +1,23 @@
 import { useEffect, useState } from 'react'
-import { getSettings } from './db'
-import { DEFAULT_SETTINGS, type Settings } from './types'
-import MemberList from './components/MemberList'
-import MemberForm from './components/MemberForm'
-import MemberSheet from './components/MemberSheet'
-import SettingsPage from './components/SettingsPage'
+import type { Session as AuthSession } from '@supabase/supabase-js'
+import { isStaff, signOut } from './api'
+import { PhoneLogin, StaffLogin } from './components/Login'
+import CustomerApp from './customer/CustomerApp'
+import StaffApp from './staff/StaffApp'
+import { configured, supabase } from './supabase'
+import { ORG_NAME, showPhone } from './types'
 
-type Route =
-  | { page: 'list' }
-  | { page: 'new' }
-  | { page: 'view'; id: string }
-  | { page: 'edit'; id: string }
-  | { page: 'settings' }
-
-function parse(hash: string): Route {
-  const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean)
-  if (parts[0] === 'new') return { page: 'new' }
-  if (parts[0] === 'settings') return { page: 'settings' }
-  if (parts[0] === 'm' && parts[1]) {
-    return parts[2] === 'edit' ? { page: 'edit', id: parts[1] } : { page: 'view', id: parts[1] }
-  }
-  return { page: 'list' }
-}
-
-export function go(path: string) {
-  window.location.hash = path
-}
+const parse = () => window.location.hash.replace(/^#\/?/, '').split('/').filter(Boolean)
 
 export default function App() {
-  const [route, setRoute] = useState<Route>(() => parse(window.location.hash))
-  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
+  const [route, setRoute] = useState(parse)
+  const [session, setSession] = useState<AuthSession | null | undefined>(undefined)
+  const [role, setRole] = useState<'staff' | 'customer' | null>(null)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     const onHash = () => {
-      setRoute(parse(window.location.hash))
+      setRoute(parse())
       window.scrollTo(0, 0)
     }
     window.addEventListener('hashchange', onHash)
@@ -41,8 +25,41 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    getSettings().then(setSettings).catch(() => {})
+    if (!configured) return
+    supabase.auth.getSession().then(({ data }) => setSession(data.session))
+    const { data } = supabase.auth.onAuthStateChange((_event, s) => setSession(s))
+    return () => data.subscription.unsubscribe()
   }, [])
+
+  const userId = session?.user.id
+  useEffect(() => {
+    setRole(null)
+    if (!userId) return
+    isStaff(userId)
+      .then((staff) => {
+        setRole(staff ? 'staff' : 'customer')
+        // ログイン画面の番地（#/staff）を残さない
+        if (parse()[0] === 'staff') window.location.hash = '/'
+      })
+      .catch((e) => setError(e.message))
+  }, [userId])
+
+  if (!configured) {
+    return (
+      <main>
+        <p className="error">
+          接続先が設定されていません。.env に VITE_SUPABASE_URL と VITE_SUPABASE_ANON_KEY を設定してください。
+        </p>
+      </main>
+    )
+  }
+  if (session === undefined) return <main><p className="muted">読み込み中…</p></main>
+  if (!session) return <main>{route[0] === 'staff' ? <StaffLogin /> : <PhoneLogin />}</main>
+
+  const logout = async () => {
+    await signOut()
+    window.location.hash = '/'
+  }
 
   return (
     <>
@@ -50,28 +67,31 @@ export default function App() {
         <a className="brand" href="#/">
           <span className="brand-mark">記</span>
           <span>
-            <strong>medRec</strong>
-            <small>{settings.orgName} 会員記録</small>
+            <strong>{ORG_NAME}</strong>
+            <small>{role === 'staff' ? 'スタッフ' : showPhone(session.user.phone ?? '')}</small>
           </span>
         </a>
         <nav>
-          <a href="#/" className={route.page === 'list' ? 'active' : ''}>
-            会員一覧
-          </a>
-          <a href="#/new" className={route.page === 'new' ? 'active' : ''}>
-            新規登録
-          </a>
-          <a href="#/settings" className={route.page === 'settings' ? 'active' : ''}>
-            設定・データ
-          </a>
+          {role === 'staff' && (
+            <>
+              <a href="#/" className={route.length === 0 || route[0] === 'm' ? 'active' : ''}>
+                会員
+              </a>
+              <a href="#/settings" className={route[0] === 'settings' ? 'active' : ''}>
+                同意文面
+              </a>
+            </>
+          )}
+          <button type="button" className="btn small ghost" onClick={logout}>
+            ログアウト
+          </button>
         </nav>
       </header>
       <main>
-        {route.page === 'list' && <MemberList />}
-        {route.page === 'new' && <MemberForm key="new" settings={settings} />}
-        {route.page === 'edit' && <MemberForm key={route.id} id={route.id} settings={settings} />}
-        {route.page === 'view' && <MemberSheet key={route.id} id={route.id} settings={settings} />}
-        {route.page === 'settings' && <SettingsPage settings={settings} onSaved={setSettings} />}
+        {error && <p className="error">{error}</p>}
+        {role === 'staff' && <StaffApp route={route} />}
+        {role === 'customer' && <CustomerApp route={route} />}
+        {!role && !error && <p className="muted">読み込み中…</p>}
       </main>
     </>
   )
