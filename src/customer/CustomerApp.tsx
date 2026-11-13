@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import {
-  addComment, consentsOf, currentDocs, getMember, getPhoto, listMembers, loginsOf, registerMember,
+  addComment, consentsOf, coursesOf, currentDocs, getMember, getPhoto, listMembers, loginsOf, registerMember,
   sessionsOf, setPhoto, signConsents, submitKarte, updateContact,
 } from '../api'
 import ConsentStep from '../components/ConsentStep'
+import Fasting from '../components/Fasting'
 import KarteForm, { karteFrom } from '../components/KarteForm'
 import SessionList from '../components/SessionList'
 import {
   ageOf, formatDate, pendingDocs, showPhone,
-  type Consent, type ConsentDocument, type Member, type MemberLogin, type Session,
+  type Consent, type ConsentDocument, type FastingCourse, type Member, type MemberLogin, type Session,
 } from '../types'
 
 const go = (path: string) => {
@@ -176,6 +177,7 @@ function MemberGate({ id }: { id: string }) {
 function MyPage({ data, reload }: { data: Loaded; reload: () => Promise<void> }) {
   const { member, photo, consents } = data
   const [sessions, setSessions] = useState<Session[] | null>(null)
+  const [courses, setCourses] = useState<FastingCourse[]>([])
   const [error, setError] = useState('')
   const age = ageOf(member.birth_date)
 
@@ -183,9 +185,14 @@ function MyPage({ data, reload }: { data: Loaded; reload: () => Promise<void> })
     () => sessionsOf(member.id).then(setSessions).catch((e) => setError(e.message)),
     [member.id],
   )
+  const loadCourses = useCallback(
+    () => coursesOf(member.id).then(setCourses).catch((e) => setError(e.message)),
+    [member.id],
+  )
   useEffect(() => {
     loadSessions()
-  }, [loadSessions])
+    loadCourses()
+  }, [loadSessions, loadCourses])
 
   return (
     <section>
@@ -202,6 +209,8 @@ function MyPage({ data, reload }: { data: Loaded; reload: () => Promise<void> })
         </div>
       </div>
       {error && <p className="error">{error}</p>}
+
+      <Fasting memberId={member.id} role="customer" courses={courses} reload={loadCourses} />
 
       <fieldset>
         <legend>療法の記録と感想</legend>

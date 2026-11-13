@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import {
-  addComment, addLogin, auditOf, changeLoginPhone, consentsOf, createSession, currentDocs,
-  getMember, getPhoto, loginsOf, removeLogin, sessionsOf, signConsents, updateSession,
+  addComment, addLogin, auditOf, changeLoginPhone, consentsOf, coursesOf, createSession, currentDocs,
+  getMember, getPhoto, legacyCandidates, legacyOfMember, loginsOf, removeLogin, sessionsOf,
+  signConsents, updateLegacy, updateSession,
   type SessionInput,
 } from '../api'
 import ConsentStep from '../components/ConsentStep'
+import Fasting from '../components/Fasting'
 import SessionList from '../components/SessionList'
 import {
   MODES, ageOf, formatDate, formatDateTime, pendingDocs, showPhone, toE164, today,
-  type AuditEntry, type Consent, type ConsentDocument, type Member, type MemberLogin, type Session,
+  type AuditEntry, type Consent, type ConsentDocument, type FastingCourse, type LegacyDocument,
+  type Member, type MemberLogin, type Session,
 } from '../types'
 
 interface Loaded {
@@ -18,6 +21,9 @@ interface Loaded {
   consents: Consent[]
   logins: MemberLogin[]
   sessions: Session[]
+  courses: FastingCourse[]
+  papers: LegacyDocument[]
+  paperCandidates: LegacyDocument[]
 }
 
 export default function StaffMemberDetail({ id }: { id: string }) {
@@ -29,10 +35,11 @@ export default function StaffMemberDetail({ id }: { id: string }) {
     try {
       const member = await getMember(id)
       if (!member) return setError('この会員は見つかりませんでした。')
-      const [photo, docs, consents, logins, sessions] = await Promise.all([
-        getPhoto(id), currentDocs(), consentsOf(id), loginsOf(id), sessionsOf(id),
+      const [photo, docs, consents, logins, sessions, courses, papers, paperCandidates] = await Promise.all([
+        getPhoto(id), currentDocs(), consentsOf(id), loginsOf(id), sessionsOf(id), coursesOf(id),
+        legacyOfMember(id), legacyCandidates(member.name, member.phone),
       ])
-      setData({ member, photo, docs, consents, logins, sessions })
+      setData({ member, photo, docs, consents, logins, sessions, courses, papers, paperCandidates })
     } catch (e) {
       setError((e as Error).message)
     }
@@ -45,7 +52,7 @@ export default function StaffMemberDetail({ id }: { id: string }) {
   if (error) return <p className="error">{error}</p>
   if (!data) return <p className="muted">読み込み中…</p>
 
-  const { member: m, photo, docs, consents, logins, sessions } = data
+  const { member: m, photo, docs, consents, logins, sessions, courses, papers, paperCandidates } = data
   const pending = pendingDocs(docs, consents)
   const age = ageOf(m.birth_date)
 
@@ -107,6 +114,8 @@ export default function StaffMemberDetail({ id }: { id: string }) {
         />
         <Sessions sessions={sessions} memberId={id} reload={load} />
       </fieldset>
+
+      <Fasting memberId={id} role="staff" courses={courses} reload={load} />
 
       <fieldset>
         <legend>カルテ</legend>
@@ -175,8 +184,40 @@ export default function StaffMemberDetail({ id }: { id: string }) {
         )}
       </fieldset>
 
+      {(papers.length > 0 || paperCandidates.length > 0) && (
+        <fieldset>
+          <legend>過去の紙</legend>
+          <ul className="login-list">
+            {papers.map((d) => (
+              <li key={d.id}>
+                <a href={`#/papers/d/${d.id}`}>{d.name || d.file_name}</a>
+                <span className="hint">{formatDate(d.uploaded_at)} 取り込み</span>
+              </li>
+            ))}
+            {paperCandidates.map((d) => (
+              <li key={d.id}>
+                <span className="tag warn">候補</span>
+                <a href={`#/papers/d/${d.id}`}>{d.name || d.file_name}</a>
+                <span className="hint">{d.phone}</span>
+                <span className="spacer" />
+                <button
+                  type="button"
+                  className="btn small"
+                  onClick={() => updateLegacy(d.id, { member_id: id }).then(load).catch((e) => setError(e.message))}
+                >
+                  この会員に結び付ける
+                </button>
+              </li>
+            ))}
+          </ul>
+          {paperCandidates.length > 0 && (
+            <p className="hint">候補は、名前か電話番号が同じ紙です。同姓同名の別人のことがあるので、PDF を開いて確かめてから結び付けてください。</p>
+          )}
+        </fieldset>
+      )}
+
       <Logins memberId={id} logins={logins} reload={load} />
-      <History memberId={id} stamp={m.updated_at + sessions.length + logins.length} />
+      <History memberId={id} stamp={m.updated_at + sessions.length + logins.length + JSON.stringify(courses).length} />
     </section>
   )
 }
@@ -393,7 +434,7 @@ function Logins({ memberId, logins, reload }: { memberId: string; logins: Member
 }
 
 const TABLE_LABEL: Record<string, string> = {
-  members: 'カルテ', sessions: '療法記録', session_staff_notes: 'スタッフのメモ', member_logins: 'ログイン電話番号',
+  members: 'カルテ', sessions: '療法記録', fasting_courses: '断食コース', fasting_logs: '断食の記録', session_staff_notes: 'スタッフのメモ', member_logins: 'ログイン電話番号',
 }
 const ACTION_LABEL = { INSERT: '追加', UPDATE: '変更', DELETE: '削除' }
 const FIELD_LABEL: Record<string, string> = {
@@ -402,9 +443,11 @@ const FIELD_LABEL: Record<string, string> = {
   occupation: '職業', referrer: '紹介者', registered_on: '登録日', birth_date: '生年月日', sex: '性別',
   blood_type: '血液型', height_cm: '身長', blood_pressure: '血圧', symptoms: '該当項目',
   symptom_detail: '症状', karte_completed_at: 'カルテ登録', session_date: '療法日', mode: '来所/遠隔',
-  note: 'メモ', relation: '区分', proxy_name: '代理人', proxy_relation: '続柄',
+  note: 'メモ', start_date: '開始日', planned_days: '予定日数', end_date: '終了日', medication: '服用中の薬',
+  medication_declared_at: '服薬の申告', log_date: '日付', weight_kg: '体重', progress: '経過',
+  entered_by: '入力者', relation: '区分', proxy_name: '代理人', proxy_relation: '続柄',
 }
-const HIDDEN = new Set(['id', 'member_id', 'session_id', 'created_at', 'updated_at', 'created_by', 'phone_digits'])
+const HIDDEN = new Set(['id', 'member_id', 'session_id', 'course_id', 'created_at', 'updated_at', 'created_by', 'phone_digits'])
 
 function show(v: unknown): string {
   if (v === null || v === undefined || v === '') return '（空）'

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { consentsOf, getMember, getPhoto, sessionsOf } from '../api'
+import { consentsOf, coursesOf, getMember, getPhoto, sessionsOf } from '../api'
 import {
   BLOOD_TYPES, FORM_TITLE, MEMBER_CLASSES, ORG_NAME, SEXES, SYMPTOM_ROWS, ageOf, formatDate,
-  type Consent, type Member, type Session,
+  type Consent, type FastingCourse, type Member, type Session,
 } from '../types'
 
 const Box = ({ on, children }: { on: boolean; children: string }) => (
@@ -14,13 +14,13 @@ const Box = ({ on, children }: { on: boolean; children: string }) => (
 
 /** 紙の登録表・同意書と同じ体裁の表示／印刷画面（スタッフ用） */
 export default function MemberSheet({ id }: { id: string }) {
-  const [data, setData] = useState<{ m: Member; photo: string; consents: Consent[]; sessions: Session[] } | null>(null)
+  const [data, setData] = useState<{ m: Member; photo: string; consents: Consent[]; sessions: Session[]; courses: FastingCourse[] } | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    Promise.all([getMember(id), getPhoto(id), consentsOf(id), sessionsOf(id)])
-      .then(([m, photo, consents, sessions]) =>
-        m ? setData({ m, photo, consents, sessions }) : setError('この会員は見つかりませんでした。'),
+    Promise.all([getMember(id), getPhoto(id), consentsOf(id), sessionsOf(id), coursesOf(id)])
+      .then(([m, photo, consents, sessions, courses]) =>
+        m ? setData({ m, photo, consents, sessions, courses }) : setError('この会員は見つかりませんでした。'),
       )
       .catch((e) => setError(e.message))
   }, [id])
@@ -28,7 +28,11 @@ export default function MemberSheet({ id }: { id: string }) {
   if (error) return <p className="error">{error}</p>
   if (!data) return <p className="muted">読み込み中…</p>
 
-  const { m, photo, consents, sessions } = data
+  const { m, photo, consents, sessions, courses } = data
+  // 断食前・断食後の体重は、記録のあるいちばん新しいコースの最初と最後
+  const course = courses.find((c) => c.logs.length > 0)
+  const before = course?.logs[0]
+  const after = course && course.logs.length > 1 ? course.logs[course.logs.length - 1] : undefined
   const age = ageOf(m.birth_date)
   // 感想は古い順に並べる
   const impressions = [...sessions]
@@ -157,6 +161,12 @@ export default function MemberSheet({ id }: { id: string }) {
               <td>{m.height_cm && `${m.height_cm} cm`}</td>
               <th>血圧</th>
               <td>{m.blood_pressure}</td>
+            </tr>
+            <tr>
+              <th>断食前 体重</th>
+              <td>{before && `${Number(before.weight_kg).toFixed(1)} kg（${formatDate(before.log_date)}）`}</td>
+              <th>断食後 体重</th>
+              <td>{after && `${Number(after.weight_kg).toFixed(1)} kg（${formatDate(after.log_date)}）`}</td>
             </tr>
           </tbody>
         </table>

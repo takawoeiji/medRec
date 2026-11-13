@@ -115,10 +115,9 @@ export interface SignInput {
   signature: string
 }
 
+/** 今日の日付（日本時間）。データベース側の today_jst() と合わせる */
 export function today(): string {
-  const d = new Date()
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date())
 }
 
 /** 満年齢。生年月日が未入力・不正なら null */
@@ -167,4 +166,57 @@ export function showPhone(stored: string): string {
 export function pendingDocs(docs: ConsentDocument[], consents: Pick<Consent, 'document_id'>[]) {
   const done = new Set(consents.map((c) => c.document_id))
   return docs.filter((d) => !done.has(d.id))
+}
+
+// ---- 第2段階
+
+export interface FastingLog {
+  id: string
+  course_id: string
+  log_date: string
+  weight_kg: number
+  blood_pressure: string
+  progress: string
+  entered_by: 'customer' | 'staff'
+}
+
+export interface FastingCourse {
+  id: string
+  member_id: string
+  start_date: string
+  planned_days: number
+  end_date: string | null
+  medication: string
+  medication_declared_at: string | null
+  note: string
+  logs: FastingLog[]
+}
+
+export interface LegacyDocument {
+  id: string
+  storage_path: string
+  file_name: string
+  file_size: number
+  name: string
+  furigana: string
+  phone: string
+  note: string
+  indexed_at: string | null
+  member_id: string | null
+  uploaded_at: string
+  member?: { id: string; name: string } | null
+}
+
+/** 2つの日付の差（日数）。b - a */
+export function daysBetween(a: string, b: string): number {
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000)
+}
+
+export function addDays(date: string, n: number): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10)
+}
+
+export function shortDate(iso: string): string {
+  const m = /^\d{4}-(\d{2})-(\d{2})/.exec(iso)
+  return m ? `${Number(m[1])}/${Number(m[2])}` : ''
 }

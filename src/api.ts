@@ -1,6 +1,8 @@
 import { supabase } from './supabase'
 import type {
   AuditEntry,
+  FastingCourse,
+  LegacyDocument,
   Consent,
   ConsentDocument,
   Member,
@@ -262,4 +264,179 @@ export async function auditOf(memberId: string): Promise<AuditEntry[]> {
       .order('changed_at', { ascending: false })
       .limit(100),
   ) as AuditEntry[]
+}
+
+// ---- 断食
+
+
+export async function coursesOf(memberId: string): Promise<FastingCourse[]> {
+  const rows = unwrap(
+    await supabase
+      .from('fasting_courses')
+      .select('*, logs:fasting_logs(id, course_id, log_date, weight_kg, blood_pressure, progress, entered_by)')
+      .eq('member_id', memberId)
+      .order('start_date', { ascending: false }),
+  ) as FastingCourse[]
+  rows.forEach((c) => c.logs.sort((a, b) => a.log_date.localeCompare(b.log_date)))
+  return rows
+}
+
+export async function createCourse(input: {
+  member_id: string
+  start_date: string
+  planned_days: number
+  medication: string
+  note: string
+}) {
+  const medication_declared_at = input.medication.trim() ? new Date().toISOString() : null
+  unwrap(await supabase.from('fasting_courses').insert({ ...input, medication_declared_at }).select('id'))
+}
+
+export async function updateCourse(
+  id: string,
+  patch: Partial<Pick<FastingCourse, 'planned_days' | 'end_date' | 'medication' | 'medication_declared_at' | 'note'>>,
+) {
+  unwrap(await supabase.from('fasting_courses').update(patch).eq('id', id).select('id'))
+}
+
+export interface FastingLogInput {
+  log_date: string
+  weight_kg: number
+  blood_pressure: string
+  progress: string
+}
+
+/** スタッフによる記録の追加・訂正（同じ日があれば上書き。履歴に残る） */
+export async function saveLogAsStaff(courseId: string, memberId: string, input: FastingLogInput) {
+  unwrap(
+    await supabase
+      .from('fasting_logs')
+      .upsert({ course_id: courseId, member_id: memberId, ...input }, { onConflict: 'course_id,log_date' })
+      .select('id'),
+  )
+}
+
+/** 顧客による日次の記録（追加のみ） */
+export async function addFastingLog(courseId: string, input: FastingLogInput) {
+  unwrap(
+    await supabase.rpc('add_fasting_log', {
+      p_course: courseId,
+      p_date: input.log_date,
+      p_weight: input.weight_kg,
+      p_blood_pressure: input.blood_pressure,
+      p_progress: input.progress,
+    }),
+  )
+}
+
+export async function declareMedication(courseId: string, text: string) {
+  unwrap(await supabase.rpc('declare_medication', { p_course: courseId, p_text: text }))
+}
+
+// ---- 過去の紙（スタッフ）
+
+const BUCKET = 'legacy-papers'
+const LEGACY_COLS = '*, member:members(id, name)'
+
+export async function uploadLegacy(file: File) {
+  if (file.type !== 'application/pdf') throw new Error(`${file.name}：PDF ではありません`)
+  const path = `${new Date().getFullYear()}/${crypto.randomUUID()}.pdf`
+  const up = await supabase.storage.from(BUCKET).upload(path, file, { contentType: 'application/pdf' })
+  if (up.error) throw new Error(`${file.name}：${up.error.message}`)
+  const row = await supabase
+    .from('legacy_documents')
+    .insert({ storage_path: path, file_name: file.name, file_size: file.size })
+    .select('id')
+  if (row.error) {
+    await supabase.storage.from(BUCKET).remove([path])
+    throw new Error(`${file.name}：${row.error.message}`)
+  }
+}
+
+function legacySearch(q: string) {
+  const clean = q.replace(/[,()%*\\]/g, ' ').trim()
+  const tel = clean.replace(/[-\s]/g, '')
+  return [`name.ilike.%${clean}%`, `furigana.ilike.%${clean}%`, /^\d+$/.test(tel) ? `phone_digits.ilike.%${tel}%` : '']
+    .filter(Boolean)
+    .join(',')
+}
+
+export async function searchLegacy(q: string): Promise<LegacyDocument[]> {
+  let query = supabase.from('legacy_documents').select(LEGACY_COLS).not('indexed_at', 'is', null)
+  if (q.trim()) query = query.or(legacySearch(q))
+  return unwrap(await query.order('furigana').order('name').limit(200)) as LegacyDocument[]
+}
+
+export async function countLegacy(q: string): Promise<number> {
+  const r = await supabase
+    .from('legacy_documents')
+    .select('id', { count: 'exact', head: true })
+    .not('indexed_at', 'is', null)
+    .or(legacySearch(q))
+  if (r.error) fail(r.error)
+  return r.count ?? 0
+}
+
+/** 名前・電話が未入力のもの（古い順）と、その総数 */
+export async function pendingLegacy(): Promise<{ docs: LegacyDocument[]; total: number }> {
+  const r = await supabase
+    .from('legacy_documents')
+    .select(LEGACY_COLS, { count: 'exact' })
+    .is('indexed_at', null)
+    .order('uploaded_at')
+    .order('id')
+    .limit(20)
+  if (r.error) fail(r.error)
+  return { docs: (r.data ?? []) as LegacyDocument[], total: r.count ?? 0 }
+}
+
+export async function getLegacy(id: string): Promise<LegacyDocument | null> {
+  return unwrap(
+    await supabase.from('legacy_documents').select(LEGACY_COLS).eq('id', id).maybeSingle(),
+  ) as LegacyDocument | null
+}
+
+export async function legacyOfMember(memberId: string): Promise<LegacyDocument[]> {
+  return unwrap(
+    await supabase.from('legacy_documents').select('*').eq('member_id', memberId).order('uploaded_at'),
+  ) as LegacyDocument[]
+}
+
+/** 同じ電話番号または同じ名前で、まだどの会員にも結び付いていない過去の紙 */
+export async function legacyCandidates(name: string, phone: string): Promise<LegacyDocument[]> {
+  const tel = phone.replace(/\D/g, '')
+  const nm = name.replace(/[,()%*\\]/g, ' ').trim()
+  const conds = [tel.length >= 9 ? `phone_digits.eq.${tel}` : '', nm ? `name.eq.${nm}` : ''].filter(Boolean)
+  if (conds.length === 0) return []
+  return unwrap(
+    await supabase.from('legacy_documents').select('*').is('member_id', null).or(conds.join(',')).limit(20),
+  ) as LegacyDocument[]
+}
+
+/** 過去の紙に書かれた名前・電話に近い会員 */
+export async function memberCandidates(name: string, phone: string): Promise<Member[]> {
+  const tel = phone.replace(/\D/g, '')
+  const nm = name.replace(/[,()%*\\]/g, ' ').trim()
+  const conds = [tel.length >= 9 ? `phone_digits.eq.${tel}` : '', nm ? `name.ilike.%${nm}%` : ''].filter(Boolean)
+  if (conds.length === 0) return []
+  return unwrap(await supabase.from('members').select('*').or(conds.join(',')).limit(10)) as Member[]
+}
+
+export async function updateLegacy(
+  id: string,
+  patch: Partial<Pick<LegacyDocument, 'name' | 'furigana' | 'phone' | 'note' | 'indexed_at' | 'member_id'>>,
+) {
+  unwrap(await supabase.from('legacy_documents').update(patch).eq('id', id).select('id'))
+}
+
+export async function deleteLegacy(doc: LegacyDocument) {
+  unwrap(await supabase.from('legacy_documents').delete().eq('id', doc.id).select('id'))
+  await supabase.storage.from(BUCKET).remove([doc.storage_path])
+}
+
+/** PDF を取り出して、この画面の中だけで使える URL にする */
+export async function legacyBlobUrl(path: string): Promise<string> {
+  const r = await supabase.storage.from(BUCKET).download(path)
+  if (r.error) fail(r.error)
+  return URL.createObjectURL(r.data as Blob)
 }
