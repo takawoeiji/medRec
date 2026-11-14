@@ -6,6 +6,7 @@ import {
 import KarteForm, { emptyKarte, karteFrom, type KarteValues } from '../components/KarteForm'
 import MemberSheet from '../components/MemberSheet'
 import { MEMBER_CLASSES, ageOf, formatDate, pendingDocs, toE164, type ConsentDocument } from '../types'
+import Appointments from './Appointments'
 import LegacyPapers from './LegacyPapers'
 import StaffMemberDetail from './StaffMemberDetail'
 import StaffSettings from './StaffSettings'
@@ -18,6 +19,7 @@ export default function StaffApp({ route }: { route: string[] }) {
   if (route[0] === 'new') return <MemberEdit />
   if (route[0] === 'settings') return <StaffSettings />
   if (route[0] === 'papers') return <LegacyPapers route={route} />
+  if (route[0] === 'appointments') return <Appointments />
   if (route[0] === 'm' && route[1]) {
     if (route[2] === 'edit') return <MemberEdit key={route[1]} id={route[1]} />
     if (route[2] === 'print') return <MemberSheet key={route[1]} id={route[1]} />

@@ -59,6 +59,7 @@ export default function SessionList({ sessions, role, onAddComment, renderAction
             <span className={s.mode === '来所' ? 'tag' : 'tag alt'}>{s.mode}</span>
             {s.is_vip && <span className="tag vip">VIP</span>}
             {s.is_fasting && <span className="tag fast">断食</span>}
+            {s.ticket_book_id && <span className="tag muted-tag">回数券</span>}
             <span className="spacer" />
             {renderActions?.(s)}
           </div>

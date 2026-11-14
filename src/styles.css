@@ -1167,3 +1167,62 @@ main:has(.paper-layout) {
     height: 55vh;
   }
 }
+
+/* ==== 第3段階で追加 ==== */
+.appt-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.appt {
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.appt-list > .appt:first-child,
+.appt-group .appt {
+  border-top: none;
+}
+.appt-group {
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+.appt-group:first-child {
+  border-top: none;
+}
+.appt-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.appt-time {
+  font-variant-numeric: tabular-nums;
+}
+.appt-name {
+  font-weight: 600;
+}
+.tag.muted-tag {
+  background: #ecebe6;
+  color: var(--muted);
+}
+fieldset.attention {
+  border-color: var(--warn);
+}
+fieldset.attention legend {
+  color: var(--warn);
+}
+.choice.disabled {
+  color: var(--muted);
+  cursor: default;
+}
+.section-title {
+  font-size: 1.15rem;
+  margin: 24px 0 8px;
+}
+.log-table tfoot th,
+.log-table tfoot td {
+  border-top: 2px solid var(--line);
+}
+strong.muted {
+  font-weight: 600;
+}

@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import {
-  addComment, addLogin, auditOf, changeLoginPhone, consentsOf, coursesOf, createSession, currentDocs,
-  getMember, getPhoto, legacyCandidates, legacyOfMember, loginsOf, removeLogin, sessionsOf,
-  signConsents, updateLegacy, updateSession,
+  addComment, addLogin, appointmentsOf, auditOf, changeLoginPhone, consentsOf, coursesOf, createSession, currentDocs,
+  getMember, getPhoto, legacyCandidates, legacyOfMember, loginsOf, paymentsOf, removeLogin,
+  sessionsOf, signConsents, ticketsOf, updateLegacy, updateSession,
   type SessionInput,
 } from '../api'
 import ConsentStep from '../components/ConsentStep'
 import Fasting from '../components/Fasting'
+import { AppointmentForm, AppointmentRow } from './Appointments'
+import MemberMoney from './MemberMoney'
 import SessionList from '../components/SessionList'
 import {
-  MODES, ageOf, formatDate, formatDateTime, pendingDocs, showPhone, toE164, today,
+  MODES, usableTickets, ageOf, formatDate, formatDateTime, pendingDocs, showPhone, toE164, today,
   type AuditEntry, type Consent, type ConsentDocument, type FastingCourse, type LegacyDocument,
-  type Member, type MemberLogin, type Session,
+  type Appointment, type Member, type MemberLogin, type Payment, type Session, type TicketBalance,
 } from '../types'
 
 interface Loaded {
@@ -24,6 +26,9 @@ interface Loaded {
   courses: FastingCourse[]
   papers: LegacyDocument[]
   paperCandidates: LegacyDocument[]
+  appointments: Appointment[]
+  tickets: TicketBalance[]
+  payments: Payment[]
 }
 
 export default function StaffMemberDetail({ id }: { id: string }) {
@@ -35,11 +40,13 @@ export default function StaffMemberDetail({ id }: { id: string }) {
     try {
       const member = await getMember(id)
       if (!member) return setError('この会員は見つかりませんでした。')
-      const [photo, docs, consents, logins, sessions, courses, papers, paperCandidates] = await Promise.all([
-        getPhoto(id), currentDocs(), consentsOf(id), loginsOf(id), sessionsOf(id), coursesOf(id),
-        legacyOfMember(id), legacyCandidates(member.name, member.phone),
-      ])
-      setData({ member, photo, docs, consents, logins, sessions, courses, papers, paperCandidates })
+      const [photo, docs, consents, logins, sessions, courses, papers, paperCandidates, appointments, tickets, payments] =
+        await Promise.all([
+          getPhoto(id), currentDocs(), consentsOf(id), loginsOf(id), sessionsOf(id), coursesOf(id),
+          legacyOfMember(id), legacyCandidates(member.name, member.phone),
+          appointmentsOf(id), ticketsOf(id), paymentsOf(id),
+        ])
+      setData({ member, photo, docs, consents, logins, sessions, courses, papers, paperCandidates, appointments, tickets, payments })
     } catch (e) {
       setError((e as Error).message)
     }
@@ -52,7 +59,7 @@ export default function StaffMemberDetail({ id }: { id: string }) {
   if (error) return <p className="error">{error}</p>
   if (!data) return <p className="muted">読み込み中…</p>
 
-  const { member: m, photo, docs, consents, logins, sessions, courses, papers, paperCandidates } = data
+  const { member: m, photo, docs, consents, logins, sessions, courses, papers, paperCandidates, appointments, tickets, payments } = data
   const pending = pendingDocs(docs, consents)
   const age = ageOf(m.birth_date)
 
@@ -105,15 +112,30 @@ export default function StaffMemberDetail({ id }: { id: string }) {
         <legend>療法の記録</legend>
         <SessionEditor
           key={`new-${sessions.length}`}
-          initial={{ session_date: today(), mode: '来所', is_vip: m.is_vip, is_fasting: m.is_fasting, note: '' }}
+          initial={{ session_date: today(), mode: '来所', is_vip: m.is_vip, is_fasting: m.is_fasting, ticket_book_id: null, note: '' }}
+          tickets={tickets}
           submitLabel="記録を追加"
           onSave={async (input) => {
             await createSession(id, input)
             await load()
           }}
         />
-        <Sessions sessions={sessions} memberId={id} reload={load} />
+        <Sessions sessions={sessions} tickets={tickets} memberId={id} reload={load} />
       </fieldset>
+
+      <fieldset>
+        <legend>予約</legend>
+        <AppointmentForm memberId={id} reload={load} />
+        {appointments.length > 0 && (
+          <ul className="appt-list mt">
+            {appointments.map((a) => (
+              <AppointmentRow key={a.id} a={a} reload={load} />
+            ))}
+          </ul>
+        )}
+      </fieldset>
+
+      <MemberMoney memberId={id} tickets={tickets} payments={payments} reload={load} />
 
       <Fasting memberId={id} role="staff" courses={courses} reload={load} />
 
@@ -217,13 +239,14 @@ export default function StaffMemberDetail({ id }: { id: string }) {
       )}
 
       <Logins memberId={id} logins={logins} reload={load} />
-      <History memberId={id} stamp={m.updated_at + sessions.length + logins.length + JSON.stringify(courses).length} />
+      <History memberId={id} stamp={m.updated_at + JSON.stringify([sessions, logins, courses, appointments, tickets, payments]).length} />
     </section>
   )
 }
 
-function SessionEditor({ initial, submitLabel, onSave, onCancel }: {
+function SessionEditor({ initial, tickets, submitLabel, onSave, onCancel }: {
   initial: SessionInput
+  tickets: TicketBalance[]
   submitLabel: string
   onSave: (v: SessionInput) => Promise<void>
   onCancel?: () => void
@@ -231,6 +254,12 @@ function SessionEditor({ initial, submitLabel, onSave, onCancel }: {
   const [v, setV] = useState(initial)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // 使う回数券：修正中の記録がすでに使っている券があればそれ、なければ期限の近い券
+  const current = tickets.find((t) => t.id === initial.ticket_book_id && t.issued_on <= v.session_date && v.session_date <= t.expires_on)
+  const ticket = current ?? usableTickets(tickets, v.session_date)[0]
+  // 新規は、使える券があれば使う。修正は、元の状態のまま
+  const [useTicket, setUseTicket] = useState<boolean | null>(initial.ticket_book_id ? true : onCancel ? false : null)
+  const ticketOn = Boolean(ticket) && (useTicket ?? true)
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -238,7 +267,7 @@ function SessionEditor({ initial, submitLabel, onSave, onCancel }: {
     setBusy(true)
     setError('')
     try {
-      await onSave(v)
+      await onSave({ ...v, ticket_book_id: ticketOn && ticket ? ticket.id : null })
     } catch (err) {
       setError((err as Error).message)
       setBusy(false)
@@ -270,6 +299,12 @@ function SessionEditor({ initial, submitLabel, onSave, onCancel }: {
           </label>
         </div>
       </div>
+      <label className={ticket ? 'choice' : 'choice disabled'}>
+        <input type="checkbox" checked={ticketOn} disabled={!ticket} onChange={(e) => setUseTicket(e.target.checked)} />
+        {ticket
+          ? `回数券を1枚使う（残り ${ticket.remaining}枚 ・ 期限 ${formatDate(ticket.expires_on)}）`
+          : 'この日に使える回数券はありません'}
+      </label>
       <label className="field">
         <span className="label">スタッフのメモ（顧客には表示されません）</span>
         <textarea rows={2} value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} />
@@ -288,7 +323,7 @@ function SessionEditor({ initial, submitLabel, onSave, onCancel }: {
   )
 }
 
-function Sessions({ sessions, memberId, reload }: { sessions: Session[]; memberId: string; reload: () => Promise<void> }) {
+function Sessions({ sessions, tickets, memberId, reload }: { sessions: Session[]; tickets: TicketBalance[]; memberId: string; reload: () => Promise<void> }) {
   const [editing, setEditing] = useState<string | null>(null)
   const target = sessions.find((s) => s.id === editing)
 
@@ -299,8 +334,9 @@ function Sessions({ sessions, memberId, reload }: { sessions: Session[]; memberI
         <SessionEditor
           initial={{
             session_date: target.session_date, mode: target.mode, is_vip: target.is_vip,
-            is_fasting: target.is_fasting, note: target.note?.note ?? '',
+            is_fasting: target.is_fasting, ticket_book_id: target.ticket_book_id, note: target.note?.note ?? '',
           }}
+          tickets={tickets}
           submitLabel="修正を保存"
           onCancel={() => setEditing(null)}
           onSave={async (input) => {
@@ -434,7 +470,7 @@ function Logins({ memberId, logins, reload }: { memberId: string; logins: Member
 }
 
 const TABLE_LABEL: Record<string, string> = {
-  members: 'カルテ', sessions: '療法記録', fasting_courses: '断食コース', fasting_logs: '断食の記録', session_staff_notes: 'スタッフのメモ', member_logins: 'ログイン電話番号',
+  members: 'カルテ', sessions: '療法記録', appointments: '予約', ticket_books: '回数券', payments: '入金', fasting_courses: '断食コース', fasting_logs: '断食の記録', session_staff_notes: 'スタッフのメモ', member_logins: 'ログイン電話番号',
 }
 const ACTION_LABEL = { INSERT: '追加', UPDATE: '変更', DELETE: '削除' }
 const FIELD_LABEL: Record<string, string> = {
@@ -445,7 +481,8 @@ const FIELD_LABEL: Record<string, string> = {
   symptom_detail: '症状', karte_completed_at: 'カルテ登録', session_date: '療法日', mode: '来所/遠隔',
   note: 'メモ', start_date: '開始日', planned_days: '予定日数', end_date: '終了日', medication: '服用中の薬',
   medication_declared_at: '服薬の申告', log_date: '日付', weight_kg: '体重', progress: '経過',
-  entered_by: '入力者', relation: '区分', proxy_name: '代理人', proxy_relation: '続柄',
+  entered_by: '入力者', scheduled_at: '予約日時', status: '状態', issued_on: '発行日', total_count: '枚数',
+  expires_on: '有効期限', paid_on: '入金日', kind: '種類', amount: '金額', ticket_book_id: '回数券', relation: '区分', proxy_name: '代理人', proxy_relation: '続柄',
 }
 const HIDDEN = new Set(['id', 'member_id', 'session_id', 'course_id', 'created_at', 'updated_at', 'created_by', 'phone_digits'])
 
@@ -454,6 +491,7 @@ function show(v: unknown): string {
   if (v === true) return 'あり'
   if (v === false) return 'なし'
   if (typeof v === 'string' && /^\d{4}-\d\d-\d\dT/.test(v)) return formatDateTime(v)
+  if (typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(v)) return 'あり'
   return Array.isArray(v) ? v.join('、') || '（空）' : String(v)
 }
 

@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import {
-  addComment, consentsOf, coursesOf, currentDocs, getMember, getPhoto, listMembers, loginsOf, registerMember,
-  sessionsOf, setPhoto, signConsents, submitKarte, updateContact,
+  addComment, appointmentsOf, consentsOf, coursesOf, currentDocs, getMember, getPhoto, listMembers, loginsOf, registerMember,
+  sessionsOf, setPhoto, signConsents, submitKarte, ticketsOf, updateContact,
 } from '../api'
 import ConsentStep from '../components/ConsentStep'
 import Fasting from '../components/Fasting'
 import KarteForm, { karteFrom } from '../components/KarteForm'
 import SessionList from '../components/SessionList'
 import {
-  ageOf, formatDate, pendingDocs, showPhone,
+  ageOf, dayLabel, formatDate, jstDate, jstTime, pendingDocs, showPhone, today,
+  type Appointment, type TicketBalance,
   type Consent, type ConsentDocument, type FastingCourse, type Member, type MemberLogin, type Session,
 } from '../types'
 
@@ -178,6 +179,8 @@ function MyPage({ data, reload }: { data: Loaded; reload: () => Promise<void> })
   const { member, photo, consents } = data
   const [sessions, setSessions] = useState<Session[] | null>(null)
   const [courses, setCourses] = useState<FastingCourse[]>([])
+  const [appointments, setAppointments] = useState<Appointment[]>([])
+  const [tickets, setTickets] = useState<TicketBalance[]>([])
   const [error, setError] = useState('')
   const age = ageOf(member.birth_date)
 
@@ -192,7 +195,13 @@ function MyPage({ data, reload }: { data: Loaded; reload: () => Promise<void> })
   useEffect(() => {
     loadSessions()
     loadCourses()
-  }, [loadSessions, loadCourses])
+    appointmentsOf(member.id).then(setAppointments).catch((e) => setError(e.message))
+    ticketsOf(member.id).then(setTickets).catch((e) => setError(e.message))
+  }, [loadSessions, loadCourses, member.id])
+
+  const t = today()
+  const upcoming = appointments.filter((a) => a.status === '予定' && jstDate(a.scheduled_at) >= t).reverse()
+  const valid = tickets.filter((b) => b.remaining > 0 && b.expires_on >= t)
 
   return (
     <section>
@@ -209,6 +218,37 @@ function MyPage({ data, reload }: { data: Loaded; reload: () => Promise<void> })
         </div>
       </div>
       {error && <p className="error">{error}</p>}
+
+      {(upcoming.length > 0 || tickets.length > 0) && (
+        <fieldset>
+          <legend>ご予約と回数券</legend>
+          <dl className="facts">
+            <dt>ご予約</dt>
+            <dd>
+              {upcoming.length === 0
+                ? '予定されているご予約はありません。'
+                : upcoming.map((a) => (
+                    <div key={a.id}>
+                      <strong>
+                        {dayLabel(jstDate(a.scheduled_at))} {jstTime(a.scheduled_at)}
+                      </strong>
+                    </div>
+                  ))}
+            </dd>
+            <dt>回数券</dt>
+            <dd>
+              {valid.length === 0
+                ? 'お使いいただける回数券はありません。'
+                : valid.map((b) => (
+                    <div key={b.id}>
+                      <strong>残り {b.remaining}枚</strong>（有効期限 {formatDate(b.expires_on)}）
+                    </div>
+                  ))}
+            </dd>
+          </dl>
+          <p className="hint">ご予約の変更は、スタッフまでご連絡ください。</p>
+        </fieldset>
+      )}
 
       <Fasting memberId={member.id} role="customer" courses={courses} reload={loadCourses} />
 

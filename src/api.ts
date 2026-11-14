@@ -1,5 +1,7 @@
 import { supabase } from './supabase'
 import type {
+  AppSettings,
+  Appointment,
   AuditEntry,
   FastingCourse,
   LegacyDocument,
@@ -7,8 +9,10 @@ import type {
   ConsentDocument,
   Member,
   MemberLogin,
+  Payment,
   Session,
   SignInput,
+  TicketBalance,
 } from './types'
 
 const MESSAGES: [RegExp, string][] = [
@@ -220,6 +224,7 @@ export interface SessionInput {
   mode: string
   is_vip: boolean
   is_fasting: boolean
+  ticket_book_id: string | null
   note: string
 }
 
@@ -439,4 +444,129 @@ export async function legacyBlobUrl(path: string): Promise<string> {
   const r = await supabase.storage.from(BUCKET).download(path)
   if (r.error) fail(r.error)
   return URL.createObjectURL(r.data as Blob)
+}
+
+// ---- 設定
+
+export async function getSettings(): Promise<AppSettings> {
+  const rows = unwrap(await supabase.from('app_settings').select('key, value')) as { key: string; value: unknown }[]
+  const get = (key: string, fallback: number) => {
+    const v = Number(rows.find((r) => r.key === key)?.value)
+    return Number.isFinite(v) && v > 0 ? v : fallback
+  }
+  return { ticket_count: get('ticket_count', 11), ticket_valid_months: get('ticket_valid_months', 2) }
+}
+
+export async function saveSettings(s: AppSettings) {
+  unwrap(
+    await supabase
+      .from('app_settings')
+      .upsert([
+        { key: 'ticket_count', value: s.ticket_count },
+        { key: 'ticket_valid_months', value: s.ticket_valid_months },
+      ])
+      .select('key'),
+  )
+}
+
+// ---- 予約
+
+const APPOINTMENT_COLS = '*, member:members(id, name, furigana, phone)'
+
+export async function appointmentsOf(memberId: string): Promise<Appointment[]> {
+  return unwrap(
+    await supabase
+      .from('appointments')
+      .select('*')
+      .eq('member_id', memberId)
+      .order('scheduled_at', { ascending: false })
+      .limit(50),
+  ) as Appointment[]
+}
+
+export async function appointmentsBetween(fromIso: string, toIso: string): Promise<Appointment[]> {
+  return unwrap(
+    await supabase
+      .from('appointments')
+      .select(APPOINTMENT_COLS)
+      .gte('scheduled_at', fromIso)
+      .lt('scheduled_at', toIso)
+      .order('scheduled_at')
+      .limit(1000),
+  ) as Appointment[]
+}
+
+export async function createAppointment(memberId: string, scheduledAt: string, note: string) {
+  unwrap(
+    await supabase.from('appointments').insert({ member_id: memberId, scheduled_at: scheduledAt, note }).select('id'),
+  )
+}
+
+export async function updateAppointment(
+  id: string,
+  patch: Partial<Pick<Appointment, 'scheduled_at' | 'status' | 'note'>>,
+) {
+  unwrap(await supabase.from('appointments').update(patch).eq('id', id).select('id'))
+}
+
+// ---- 回数券と入金
+
+export async function ticketsOf(memberId: string): Promise<TicketBalance[]> {
+  return unwrap(
+    await supabase.from('ticket_balances').select('*').eq('member_id', memberId).order('issued_on', { ascending: false }),
+  ) as TicketBalance[]
+}
+
+/** 回数券を発行する。金額があれば、入金も同時に記録する */
+export async function issueTickets(input: {
+  member_id: string
+  issued_on: string
+  total_count: number
+  expires_on: string
+  amount: number | null
+}) {
+  const { amount, ...book } = input
+  const row = unwrap(await supabase.from('ticket_books').insert(book).select('id').single()) as { id: string }
+  if (amount !== null) {
+    await addPayment({
+      member_id: input.member_id, paid_on: input.issued_on, kind: '回数券', amount, note: '', ticket_book_id: row.id,
+    })
+  }
+}
+
+export async function updateTicket(id: string, patch: { expires_on: string }) {
+  unwrap(await supabase.from('ticket_books').update(patch).eq('id', id).select('id'))
+}
+
+export async function paymentsOf(memberId: string): Promise<Payment[]> {
+  return unwrap(
+    await supabase
+      .from('payments')
+      .select('*')
+      .eq('member_id', memberId)
+      .order('paid_on', { ascending: false })
+      .order('created_at', { ascending: false }),
+  ) as Payment[]
+}
+
+export async function addPayment(input: Omit<Payment, 'id'>) {
+  unwrap(await supabase.from('payments').insert(input).select('id'))
+}
+
+export async function deletePayment(id: string) {
+  unwrap(await supabase.from('payments').delete().eq('id', id).select('id'))
+}
+
+// ---- CSV 用：件数の上限なく全件を読む
+
+export async function fetchAll<T>(table: string, columns: string, orderBy: string): Promise<T[]> {
+  const PAGE = 1000
+  const all: T[] = []
+  for (let from = 0; ; from += PAGE) {
+    const rows = unwrap(
+      await supabase.from(table).select(columns).order(orderBy).order('id').range(from, from + PAGE - 1),
+    ) as T[]
+    all.push(...rows)
+    if (rows.length < PAGE) return all
+  }
 }

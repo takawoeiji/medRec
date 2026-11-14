@@ -91,6 +91,8 @@ export interface Session {
   mode: '来所' | '遠隔'
   is_vip: boolean
   is_fasting: boolean
+  /** 使った回数券。使っていなければ null */
+  ticket_book_id: string | null
   created_at: string
   comments: SessionComment[]
   /** スタッフにだけ返る */
@@ -219,4 +221,89 @@ export function addDays(date: string, n: number): string {
 export function shortDate(iso: string): string {
   const m = /^\d{4}-(\d{2})-(\d{2})/.exec(iso)
   return m ? `${Number(m[1])}/${Number(m[2])}` : ''
+}
+
+// ---- 第3段階
+
+export const APPOINTMENT_STATUSES = ['予定', '来院', '来院なし', '取消'] as const
+export const PAYMENT_KINDS = ['入会金', '療法費', '回数券', 'その他'] as const
+
+export interface Appointment {
+  id: string
+  member_id: string
+  scheduled_at: string
+  status: (typeof APPOINTMENT_STATUSES)[number]
+  note: string
+  member?: { id: string; name: string; furigana: string; phone: string }
+}
+
+export interface TicketBalance {
+  id: string
+  member_id: string
+  issued_on: string
+  total_count: number
+  expires_on: string
+  note: string
+  used_count: number
+  remaining: number
+}
+
+export interface Payment {
+  id: string
+  member_id: string
+  paid_on: string
+  kind: (typeof PAYMENT_KINDS)[number]
+  amount: number
+  note: string
+  ticket_book_id: string | null
+}
+
+export interface AppSettings {
+  ticket_count: number
+  ticket_valid_months: number
+}
+
+const JST = 'Asia/Tokyo'
+
+/** 日時を日本時間の日付（YYYY-MM-DD）にする */
+export function jstDate(iso: string): string {
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: JST }).format(new Date(iso))
+}
+
+/** 日時を日本時間の時刻（HH:MM）にする */
+export function jstTime(iso: string): string {
+  return new Intl.DateTimeFormat('ja-JP', { timeZone: JST, hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso))
+}
+
+/** 日本時間の日付と時刻から、保存用の日時を作る */
+export function fromJst(date: string, time: string): string {
+  return new Date(`${date}T${time}:00+09:00`).toISOString()
+}
+
+/** 2026-11-14 → 11月14日（土） */
+export function dayLabel(date: string): string {
+  const d = new Date(`${date}T00:00:00+09:00`)
+  const w = new Intl.DateTimeFormat('ja-JP', { timeZone: JST, weekday: 'short' }).format(d)
+  const [, m, dd] = date.split('-')
+  return `${Number(m)}月${Number(dd)}日（${w}）`
+}
+
+/** 月を足す。月末を超える日は月末に寄せる（1/31 + 1か月 → 2/28） */
+export function addMonths(date: string, months: number): string {
+  const [y, m, d] = date.split('-').map(Number)
+  const first = new Date(Date.UTC(y, m - 1 + months, 1))
+  const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate()
+  first.setUTCDate(Math.min(d, last))
+  return first.toISOString().slice(0, 10)
+}
+
+export function yen(n: number): string {
+  return `${n.toLocaleString('ja-JP')}円`
+}
+
+/** その日の療法に使える回数券（残りがあり、期間内）。期限の近い順 */
+export function usableTickets(tickets: TicketBalance[], date: string): TicketBalance[] {
+  return tickets
+    .filter((t) => t.remaining > 0 && t.issued_on <= date && date <= t.expires_on)
+    .sort((a, b) => a.expires_on.localeCompare(b.expires_on))
 }

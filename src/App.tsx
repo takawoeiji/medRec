@@ -77,11 +77,14 @@ export default function App() {
               <a href="#/" className={route.length === 0 || route[0] === 'm' ? 'active' : ''}>
                 会員
               </a>
+              <a href="#/appointments" className={route[0] === 'appointments' ? 'active' : ''}>
+                予約
+              </a>
               <a href="#/papers" className={route[0] === 'papers' ? 'active' : ''}>
                 過去の紙
               </a>
               <a href="#/settings" className={route[0] === 'settings' ? 'active' : ''}>
-                同意文面
+                設定
               </a>
             </>
           )}
